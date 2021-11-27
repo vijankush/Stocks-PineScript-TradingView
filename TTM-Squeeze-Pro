@@ -1,0 +1,52 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Beardy_Fred
+
+//@version=5
+indicator('Beardy Squeeze Pro', shorttitle='TTM Squeeze Pro', overlay=true)
+
+length = 20
+
+//BOLLINGER BANDS
+BB_mult = 2.0
+BB_basis = ta.sma(close, length)
+dev = BB_mult * ta.stdev(close, length)
+BB_upper = BB_basis + dev
+BB_lower = BB_basis - dev
+
+//KELTNER CHANNELS
+KC_mult_high = 1.0
+KC_mult_mid = 1.5
+KC_mult_low = 2.0
+KC_basis = ta.sma(close, length)
+devKC = ta.sma(ta.tr, length)
+KC_upper_high = KC_basis + devKC * KC_mult_high
+KC_lower_high = KC_basis - devKC * KC_mult_high
+KC_upper_mid = KC_basis + devKC * KC_mult_mid
+KC_lower_mid = KC_basis - devKC * KC_mult_mid
+KC_upper_low = KC_basis + devKC * KC_mult_low
+KC_lower_low = KC_basis - devKC * KC_mult_low
+
+//SQUEEZE CONDITIONS
+
+//NO SQUEEZE: GREEN
+NoSqz = BB_lower < KC_lower_low or BB_upper > KC_upper_low
+//LOW COMPRESSION: BLACK
+LowSqz = BB_lower >= KC_lower_low or BB_upper <= KC_upper_low
+//MID COMPRESSION: RED
+MidSqz = BB_lower >= KC_lower_mid or BB_upper <= KC_upper_mid
+//HIGH COMPRESSION: ORANGE
+HighSqz = BB_lower >= KC_lower_high or BB_upper <= KC_upper_high
+
+//MOMENTUM OSCILLATOR
+mom = ta.linreg(close - math.avg(math.avg(ta.highest(high, length), ta.lowest(low, length)), ta.sma(close, length)), length, 0)
+
+//MOMENTUM HISTOGRAM COLOR
+iff_1 = mom > nz(mom[1]) ? color.new(color.aqua, 0) : color.new(#2962ff, 0)
+iff_2 = mom < nz(mom[1]) ? color.new(color.red, 0) : color.new(color.yellow, 0)
+mom_color = mom > 0 ? iff_1 : iff_2
+
+//SQUEEZE DOTS COLOR
+sq_color = HighSqz ? color.new(color.orange, 0) : MidSqz ? color.new(color.red, 0) : LowSqz ? color.new(color.black, 0) : color.new(color.green, 0)
+
+plot(mom, title='MOM', color=mom_color, style=plot.style_columns, linewidth=2)
+plot(0, title='SQZ', color=sq_color, style=plot.style_circles, linewidth=3)
