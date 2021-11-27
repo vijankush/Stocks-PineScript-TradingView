@@ -1,0 +1,73 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+//@version=5
+
+indicator("Nadaraya-Watson Envelope [LUX]",overlay=true,max_bars_back=1000,max_lines_count=500,max_labels_count=500)
+length = input.float(500,'Window Size',maxval=500,minval=0)
+h      = input.float(8.,'Bandwidth')
+mult   = input.float(3.) 
+src    = input.source(close,'Source')
+
+up_col = input.color(#39ff14,'Colors',inline='col')
+dn_col = input.color(#ff1100,'',inline='col')
+//----
+n = bar_index
+var k = 2
+var upper = array.new_line(0) 
+var lower = array.new_line(0) 
+
+lset(l,x1,y1,x2,y2,col)=>
+    line.set_xy1(l,x1,y1)
+    line.set_xy2(l,x2,y2)
+    line.set_color(l,col)
+    line.set_width(l,2)
+
+if barstate.isfirst
+    for i = 0 to length/k-1
+        array.push(upper,line.new(na,na,na,na))
+        array.push(lower,line.new(na,na,na,na))
+//----
+line up = na
+line dn = na
+//----
+cross_up = 0.
+cross_dn = 0.
+if barstate.islast
+    y = array.new_float(0)
+    
+    sum_e = 0.
+    for i = 0 to length-1
+        sum = 0.
+        sumw = 0.
+        
+        for j = 0 to length-1
+            w = math.exp(-(math.pow(i-j,2)/(h*h*2)))
+            sum += src[j]*w
+            sumw += w
+        
+        y2 = sum/sumw
+        sum_e += math.abs(src[i] - y2)
+        array.push(y,y2)
+
+    mae = sum_e/length*mult
+    
+    for i = 1 to length-1
+        y2 = array.get(y,i)
+        y1 = array.get(y,i-1)
+        
+        up := array.get(upper,i/k)
+        dn := array.get(lower,i/k)
+        
+        lset(up,n-i+1,y1 + mae,n-i,y2 + mae,up_col)
+        lset(dn,n-i+1,y1 - mae,n-i,y2 - mae,dn_col)
+        
+        if src[i] > y1 + mae and src[i+1] < y1 + mae
+            label.new(n-i,src[i],'▼',color=#00000000,style=label.style_label_down,textcolor=dn_col,textalign=text.align_center)
+        if src[i] < y1 - mae and src[i+1] > y1 - mae
+            label.new(n-i,src[i],'▲',color=#00000000,style=label.style_label_up,textcolor=up_col,textalign=text.align_center)
+    
+    cross_up := array.get(y,0) + mae
+    cross_dn := array.get(y,0) - mae
+
+alertcondition(ta.crossover(src,cross_up),'Down','Down')
+alertcondition(ta.crossunder(src,cross_dn),'Up','Up')
