@@ -1,0 +1,378 @@
+//@version=4
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//
+// This indicator was created by merging the cyclic smoothed RSI indicator by Lars von Theinen and the tradingview.com built in divergence indicator.
+//
+// I added several extra items:
+//      1) A Weighted Moving Average (WMA) to track the general trend of the cRSI signal.
+//      2) Color the region between the upper and lower cRSI bands based on if the cRSI signal is above or below the WMA (green above, red below). This can help determine if the equity is in correction or rally.
+//      3) Indicators for when the cRSI crosses from above the upper band back into the band (red dot) and crosses from below the lower band back into the band (green dot).
+// These extra items can help you time buy and sell. It is important that you select an appropriate time frame. 1D and 4h seem to work well.
+//      1) Red dots are potential times to sell/short. The higher the upperband the more likely of a bigger correction (corresponds to the size of your order).
+//      2) Green dots are potential times to buy/long. The lower the lowerband the more likely of a bigger rally (corresponds to the size of your order).
+//      3) Crossing of the WMA is also a critical trigger for selling and buying. Crossing below the WMA (start of red region) is a sell and rising above (start of green region) is a buy.
+// You can adapt this code to make your own strategy. It is tricky to use just the cRSI indicators by themselves as they can create false buy/sell triggers. It works very well with strong rallies and correction,
+// but the smaller ones can create some mistakes. In addition, like all indicators that are bsased on moving averages there is a latency issue. That means they tend to trigger right after key events. Perfect timing
+// is not possible strictly with these indicators, but they do work very well "on average." Corrections and the counter rallies inside them are especially tricky. Correction usually happen with a pair of drops with
+// small counter trend rally in between. You need to be careful and not buy when the counter rally rises back above the lower band. In addition, the price can continues to fall even when the cRSI is rising. The same
+// is true for tops. Often times a strong rally will be followed by a falling cRSI yet the price continues to climb, somtimes 15-25% more. This is where looking at a higher time frame (1W) maybe helpful.
+//
+// © Dr_Roboto
+//
+//---------------------------------------------------------------------------------------------------------------------------------
+// Copyright (C) 2017 CC BY, whentotrade / Lars von Thienen
+// Source:
+// Book: Decoding The Hidden Market Rhythm - Part 1: Dynamic Cycles (2017)
+// Chapter 4: "Fine-tuning technical indicators for more details on the cRSI Indicator
+//
+// https://www.tradingview.com/script/TmqiR1jp-RSI-cyclic-smoothed-v2/
+// The cyclic smoothed RSI indicator is an enhancement of the classic RSI, adding
+//      1) additional smoothing according to the market vibration,
+//      2) adaptive upper and lower bands according to the cyclic memory and
+//      3) using the current dominant cycle length as input for the indicator.
+// The cRSI is used like a standard indicator. The chart highlights trading signals where the signal line crosses above or below the adaptive lower/upper bands. It is much more responsive to market moves than the basic RSI. 
+// The indicator uses the dominant cycle as input to optimize signal, smoothing and cyclic memory. To get more in-depth information on the cyclic-smoothed RSI indicator, please read Chapter 4 "Fine tuning technical indicators" 
+// of the book "Decoding the Hidden Market Rhythm, Part 1" available at your favorite book store. 
+// 
+// Usage: 
+// You need to derive the dominant cycle as input parameter for the cycle length as described in chapter 4.
+//
+// License: 
+// This work is licensed under a Creative Commons Attribution 4.0 International License.
+// You are free to share the material in any medium or format and remix, transform, and build upon the material for any purpose, 
+// even commercially. You must give appropriate credit to the authors book and website, provide a link to the license, and indicate 
+// if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use. 
+study(title="Cyclic Smoothed RSI with Divergence Indicator", format=format.price, shorttitle="cRSI + Divergence")
+
+src = input(title="cRSI Source", defval=close)
+domcycle = input(12, minval=5, title="cRSI Dominant Cycle Length (persist after high/low)")
+
+crsi = 0.0
+cyclelen = domcycle / 2
+vibration = 10
+leveling = 10.0
+cyclicmemory = domcycle * 2
+//set min/max ranges?
+
+//h1 = hline(30, color=color.silver, linestyle=hline.style_dashed)
+//h2 = hline(70, color=color.silver, linestyle=hline.style_dashed)
+hline(50, title="Middle Line", linestyle=hline.style_dashed)
+h2 = hline(70, title="Overbought", linestyle=hline.style_dashed)
+h1 = hline(30, title="Oversold", linestyle=hline.style_dashed)
+//fill(h2, h1, title="Background", color=#9915FF, transp=90)
+fill(h1, h2, color=color.silver, transp=80)
+
+
+torque = 2.0 / (vibration + 1)
+phasingLag = (vibration - 1) / 2.0
+
+up = rma(max(change(src), 0), cyclelen)
+down = rma(-min(change(src), 0), cyclelen)
+rsi = down == 0 ? 100 : up == 0 ? 0 : 100 - 100 / (1 + up / down)
+crsi := torque * (2 * rsi - rsi[phasingLag]) + (1 - torque) * nz(crsi[1])
+
+lmax = -999999.0
+lmin = 999999.0
+for i = 0 to cyclicmemory - 1 by 1
+    if nz(crsi[i], -999999.0) > lmax
+        lmax := nz(crsi[i])
+        lmax
+    else
+        if nz(crsi[i], 999999.0) < lmin
+            lmin := nz(crsi[i])
+            lmin
+
+mstep = (lmax - lmin) / 100
+aperc = leveling / 100
+
+crsiLowband = 0.0
+for steps = 0 to 100 by 1
+    testvalue = lmin + mstep * steps
+    above = 0
+    below = 0
+    for m = 0 to cyclicmemory - 1 by 1
+        below := below + iff(crsi[m] < testvalue, 1, 0)
+        below
+
+    ratio = below / cyclicmemory
+    if ratio >= aperc
+        crsiLowband := testvalue
+        break
+    else
+        continue
+
+crsiHighband = 0.0
+for steps = 0 to 100 by 1
+    testvalue = lmax - mstep * steps
+    above = 0
+    for m = 0 to cyclicmemory - 1 by 1
+        above := above + iff(crsi[m] >= testvalue, 1, 0)
+        above
+
+    ratio = above / cyclicmemory
+    if ratio >= aperc
+        crsiHighband := testvalue
+        break
+    else
+        continue
+
+
+// Plot bands and crsi (this is default way, new way below based on bull/bear)
+// crsiLB = plot(crsiLowband, "cRSI LowBand", color.aqua)
+// crsiHB = plot(crsiHighband, "cRSI HighBand", color.aqua)
+//fill(crsiLB, crsiHB, color=color.gray, transp=80)
+//plot(crsi, "CRSI", color.black, linewidth=3)
+
+
+
+//=================================================================================================================================
+// cRSI moving average
+//=================================================================================================================================
+crsiMaLen = input(title="cRSI Moving Average Length", defval=40, minval=0, step=5, type=input.integer)
+// crsiSMA = sma(crsi,crsiMaLen)
+// crsiEMA = ema(crsi,crsiMaLen)
+crsiWMA = wma(crsi,crsiMaLen)
+
+// plot(crsiSMA, "CRSI SMA", color.red, linewidth=2)
+// plot(crsiEMA, "CRSI EMA", color.green, linewidth=2)
+// plot(crsiWMA, "CRSI WMA", color.fuchsia, linewidth=2)
+
+
+
+//=================================================================================================================================
+// Compare cRSI to crsiWMA to determine if equity is bullish or bearish
+//=================================================================================================================================
+bull = crsi > crsiWMA
+bear = not(bull)
+bullBearColor = bull ? color.green : color.red
+
+
+
+//=================================================================================================================================
+// Plot cRSI colored by bull or bear
+//=================================================================================================================================
+crsiLB2 = plot(crsiLowband, "cRSI LowBand", bullBearColor)
+crsiHB2 = plot(crsiHighband, "cRSI HighBand", bullBearColor)
+fill(crsiLB2, crsiHB2, bullBearColor, transp=75)
+plot(crsiWMA, "CRSI WMA", color.fuchsia, linewidth=2)
+plot(crsi, "CRSI", color.black, linewidth=4)
+
+
+
+//=================================================================================================================================
+// cRSI Analysis
+//=================================================================================================================================
+// Crossing of upper band
+crsiAboveHighband = crsi >= crsiHighband
+crsiBelowHighband = not(crsiAboveHighband)
+crsiCrossAboveHighband = crsiAboveHighband[0] and crsiBelowHighband[1] ? true : false
+crsiCrossBelowHighband = crsiBelowHighband[0] and crsiAboveHighband[1] ? true : false
+
+// plot(crsiAboveHighband?2.0:0,color=color.black)
+// plot(crsiBelowHighband?2.25:0,color=color.red)
+// plot(crsiCrossAboveHighband?2.5:0,color=color.green)
+// plot(crsiCrossBelowHighband?2.75:0,color=color.blue)
+
+
+//-----------------------------------------------------------------------------
+// Crossing of lower band
+crsiAboveLowband = crsi >= crsiLowband
+crsiBelowLowband = not(crsiAboveLowband)
+crsiCrossAboveLowband = crsiAboveLowband[0] and crsiBelowLowband[1] ? true : false
+crsiCrossBelowLowband = crsiBelowLowband[0] and crsiAboveLowband[1] ? true : false
+
+// plot(crsiAboveLowband?1.0:0,color=color.black)
+// plot(crsiBelowLowband?1.25:0,color=color.red)
+// plot(crsiCrossAboveLowband?1.5:0,color=color.green)
+// plot(crsiCrossBelowLowband?1.75:0,color=color.blue)
+
+
+//-----------------------------------------------------------------------------
+// Crossing of WMA
+crsiAboveWMA = crsi >= crsiWMA
+crsiBelowWMA = not(crsiAboveWMA)
+crsiCrossAboveWMA = crsiAboveWMA[0] and crsiBelowWMA[1] ? true : false
+crsiCrossBelowWMA = crsiBelowWMA[0] and crsiAboveWMA[1] ? true : false
+
+// plot(crsiAboveWMA?1.0:0,color=color.black)
+// plot(crsiBelowWMA?1.25:0,color=color.red)
+// plot(crsiCrossAboveWMA?1.5:0,color=color.blue)
+// plot(crsiCrossBelowWMA?1.75:0,color=color.maroon)
+
+
+//-----------------------------------------------------------------------------
+// CRSI falling or rising
+crsiRising = crsi[0] >= crsi[1]
+crsiFalling = crsi[0] < crsi[1]
+
+// plot(crsiRising?3.0:0,color=color.green)
+// plot(crsiFalling?3.0:0,color=color.red)
+
+
+
+//-----------------------------------------------------------------------------
+// Plot key points
+plot(crsiCrossBelowHighband?crsi:na, title='cRSI cross above high band', color=color.red, linewidth=7, style=plot.style_circles)
+plot(crsiCrossAboveLowband?crsi:na, title='cRSI cross below high band', color=color.green, linewidth=7, style=plot.style_circles)
+// plot(crsiCrossAboveWMA?crsi:na, title='cRSI cross above WMA', color=color.blue, linewidth=3, style=plot.style_cross)
+// plot(crsiCrossBelowWMA?crsi:na, title='cRSI cross below WMA', color=color.maroon, linewidth=3, style=plot.style_cross)
+
+
+
+
+
+
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+// Divergence Indicator Using cRSI
+//------------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+lbR = input(title="Pivot Lookback Right", defval=5) // 5
+lbL = input(title="Pivot Lookback Left", defval=5) // 25
+rangeUpper = input(title="Pivot Max of Lookback Range", defval=60) // 80
+rangeLower = input(title="Pivot Min of Lookback Range", defval=5) // 10
+
+plotBull = input(title="Plot Bullish", defval=true)
+plotHiddenBull = input(title="Plot Hidden Bullish", defval=true)
+plotBear = input(title="Plot Bearish", defval=true)
+plotHiddenBear = input(title="Plot Hidden Bearish", defval=true)
+
+bearColor = color.red
+bullColor = color.green
+hiddenBullColor = color.new(color.green, 50) // make transparent
+hiddenBearColor = color.new(color.red, 50) // make transparent
+textColor = color.white
+noneColor = color.new(color.white, 100)
+
+// THIS IS THE IMPORTANT STEP OF GETTING THE CRSI INSTEAD OF THE TRADITIONAL RSI
+osc = crsi
+
+plFound = na(pivotlow(osc, lbL, lbR)) ? false : true
+phFound = na(pivothigh(osc, lbL, lbR)) ? false : true
+_inRange(cond) =>
+	bars = barssince(cond == true)
+	rangeLower <= bars and bars <= rangeUpper
+	
+//------------------------------------------------------------------------------
+// Regular Bullish
+// Osc: Higher Low
+oscHL = osc[lbR] > valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Lower Low
+priceLL = low[lbR] < valuewhen(plFound, low[lbR], 1)
+bullCond = plotBull and priceLL and oscHL and plFound
+
+plot(
+     plFound ? osc[lbR] : na,
+     offset=-lbR,
+     title="Regular Bullish",
+     linewidth=2,
+     color=(bullCond ? bullColor : noneColor),
+     transp=0
+     )
+
+plotshape(
+	 bullCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bullish Label",
+	 text=" Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+	 
+//------------------------------------------------------------------------------
+// Hidden Bullish
+// Osc: Lower Low
+oscLL = osc[lbR] < valuewhen(plFound, osc[lbR], 1) and _inRange(plFound[1])
+
+// Price: Higher Low
+priceHL = low[lbR] > valuewhen(plFound, low[lbR], 1)
+
+hiddenBullCond = plotHiddenBull and priceHL and oscLL and plFound
+
+plot(
+	 plFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish",
+	 linewidth=2,
+	 color=(hiddenBullCond ? hiddenBullColor : noneColor),
+	 transp=0
+	 )
+
+plotshape(
+	 hiddenBullCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bullish Label",
+	 text=" H Bull ",
+	 style=shape.labelup,
+	 location=location.absolute,
+	 color=bullColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+
+//------------------------------------------------------------------------------
+// Regular Bearish
+// Osc: Lower High
+oscLH = osc[lbR] < valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Higher High
+priceHH = high[lbR] > valuewhen(phFound, high[lbR], 1)
+
+bearCond = plotBear and priceHH and oscLH and phFound
+
+plot(
+	 phFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish",
+	 linewidth=2,
+	 color=(bearCond ? bearColor : noneColor),
+	 transp=0
+	 )
+
+plotshape(
+	 bearCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Regular Bearish Label",
+	 text=" Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+
+//------------------------------------------------------------------------------
+// Hidden Bearish
+// Osc: Higher High
+oscHH = osc[lbR] > valuewhen(phFound, osc[lbR], 1) and _inRange(phFound[1])
+
+// Price: Lower High
+priceLH = high[lbR] < valuewhen(phFound, high[lbR], 1)
+
+hiddenBearCond = plotHiddenBear and priceLH and oscHH and phFound
+
+plot(
+	 phFound ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish",
+	 linewidth=2,
+	 color=(hiddenBearCond ? hiddenBearColor : noneColor),
+	 transp=0
+	 )
+
+plotshape(
+	 hiddenBearCond ? osc[lbR] : na,
+	 offset=-lbR,
+	 title="Hidden Bearish Label",
+	 text=" H Bear ",
+	 style=shape.labeldown,
+	 location=location.absolute,
+	 color=bearColor,
+	 textcolor=textColor,
+	 transp=0
+	 )
+
